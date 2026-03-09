@@ -1,0 +1,34 @@
+# JUCE generated
+Builds/
+JuceLibraryCode/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build outputs
+**/Debug/
+**/Release/
+**/x64/
+**/Win32/
+*.obj
+*.pch
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.lib
+*.exp
+
+# macOS
+DerivedData/
+*.xcworkspace/
+*.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcuserdata/
+
+# Misc
+.DS_Store
+Thumbs.db
