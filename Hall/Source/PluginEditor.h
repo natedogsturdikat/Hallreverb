@@ -34,6 +34,12 @@ private:
     juce::Slider feedbackKnob;
     juce::Slider mixKnob;
     juce::Slider toneKnob;
+    juce::Label directionLabel;
+    juce::Label delayLabel;
+    juce::Label feedbackLabel;
+    juce::Label mixLabel;
+    juce::Label toneLabel;
+    
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> directionAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> delayAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> feedbackAttachment;

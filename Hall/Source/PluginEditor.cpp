@@ -16,7 +16,8 @@ HallAudioProcessorEditor::HallAudioProcessorEditor (HallAudioProcessor& p)
     // Make sure that before the constructor has finished, you've set the
     // editor's size to whatever you need it to be.
      setSize (500, 500);
-
+    
+     //Sliders
     directionWheel.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     directionWheel.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 20);
     addAndMakeVisible (directionWheel);
@@ -51,6 +52,33 @@ HallAudioProcessorEditor::HallAudioProcessorEditor (HallAudioProcessor& p)
 
     toneAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.apvts, "tone", toneKnob);
+    
+    //labels
+    directionLabel.setText ("Direction", juce::dontSendNotification);
+    directionLabel.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (directionLabel);
+
+    delayLabel.setText ("Delay", juce::dontSendNotification);
+    delayLabel.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (delayLabel);
+
+    feedbackLabel.setText ("Decay", juce::dontSendNotification);
+    feedbackLabel.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (feedbackLabel);
+
+    mixLabel.setText ("Mix", juce::dontSendNotification);
+    mixLabel.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (mixLabel);
+
+    toneLabel.setText ("Tone", juce::dontSendNotification);
+    toneLabel.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (toneLabel);
+    
+    directionLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+    delayLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+    feedbackLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+    mixLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+    toneLabel.setColour (juce::Label::textColourId, juce::Colours::white);
 }
 
 HallAudioProcessorEditor::~HallAudioProcessorEditor()
@@ -76,12 +104,24 @@ void HallAudioProcessorEditor::resized()
 
     auto topArea = area.removeFromTop (320);
     directionWheel.setBounds (topArea.reduced (60));
+    directionLabel.setBounds (topArea.removeFromTop (30));
 
     auto bottomArea = area.reduced (10);
-    int knobWidth = bottomArea.getWidth() / 4;
+    int sectionWidth = bottomArea.getWidth() / 4;
 
-    delayKnob.setBounds    (bottomArea.removeFromLeft (knobWidth).reduced (10));
-    feedbackKnob.setBounds (bottomArea.removeFromLeft (knobWidth).reduced (10));
-    mixKnob.setBounds      (bottomArea.removeFromLeft (knobWidth).reduced (10));
-    toneKnob.setBounds     (bottomArea.reduced (10));
+    auto delayArea = bottomArea.removeFromLeft (sectionWidth).reduced (10);
+    delayLabel.setBounds (delayArea.removeFromTop (20));
+    delayKnob.setBounds (delayArea);
+
+    auto feedbackArea = bottomArea.removeFromLeft (sectionWidth).reduced (10);
+    feedbackLabel.setBounds (feedbackArea.removeFromTop (20));
+    feedbackKnob.setBounds (feedbackArea);
+
+    auto mixArea = bottomArea.removeFromLeft (sectionWidth).reduced (10);
+    mixLabel.setBounds (mixArea.removeFromTop (20));
+    mixKnob.setBounds (mixArea);
+
+    auto toneArea = bottomArea.reduced (10);
+    toneLabel.setBounds (toneArea.removeFromTop (20));
+    toneKnob.setBounds (toneArea);
 }
