@@ -30,6 +30,15 @@ private:
     HallAudioProcessor& audioProcessor;
     
     juce::Slider directionWheel;
+    juce::Slider delayKnob;
+    juce::Slider feedbackKnob;
+    juce::Slider mixKnob;
+    juce::Slider toneKnob;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> directionAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> delayAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> feedbackAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> toneAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HallAudioProcessorEditor)
 };

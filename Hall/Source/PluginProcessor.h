@@ -52,8 +52,17 @@ public:
     //==============================================================================
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
+    
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
+    juce::AudioProcessorValueTreeState apvts;
 
 private:
     //==============================================================================
+    juce::AudioBuffer<float> delayBuffer;
+    int delayWritePosition = 0;
+    double currentSampleRate = 44100.0;
+    float wetFilterState = 0.0f;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HallAudioProcessor)
 };

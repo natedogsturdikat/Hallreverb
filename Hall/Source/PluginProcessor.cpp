@@ -19,7 +19,8 @@ HallAudioProcessor::HallAudioProcessor()
                       #endif
                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                      #endif
-                       )
+                       ),
+        apvts (*this, nullptr, "Parameters", createParameterLayout())
 #endif
 {
 }
@@ -95,6 +96,16 @@ void HallAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
+    juce::ignoreUnused (samplesPerBlock);
+
+    currentSampleRate = sampleRate;
+
+    const int delayBufferSize = static_cast<int> (2.0 * sampleRate);
+    delayBuffer.setSize (1, delayBufferSize);
+    delayBuffer.clear();
+
+    delayWritePosition = 0;
+    wetFilterState = 0.0f;
 }
 
 void HallAudioProcessor::releaseResources()
@@ -131,31 +142,109 @@ bool HallAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) con
 
 void HallAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
+    juce::ignoreUnused (midiMessages);
     juce::ScopedNoDenormals noDenormals;
-    auto totalNumInputChannels  = getTotalNumInputChannels();
-    auto totalNumOutputChannels = getTotalNumOutputChannels();
 
-    // In case we have more outputs than inputs, this code clears any output
-    // channels that didn't contain input data, (because these aren't
-    // guaranteed to be empty - they may contain garbage).
-    // This is here to avoid people getting screaming feedback
-    // when they first compile a plugin, but obviously you don't need to keep
-    // this code if your algorithm always overwrites all the output channels.
-    for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
-        buffer.clear (i, 0, buffer.getNumSamples());
+    const int numSamples = buffer.getNumSamples();
+    const int numChannels = buffer.getNumChannels();
 
-    // This is the place where you'd normally do the guts of your plugin's
-    // audio processing...
-    // Make sure to reset the state if your inner loop is processing
-    // the samples and the outer loop is handling the channels.
-    // Alternatively, you can process the samples with the channels
-    // interleaved by keeping the same state.
-    for (int channel = 0; channel < totalNumInputChannels; ++channel)
+    for (int channel = 2; channel < numChannels; ++channel)
+        buffer.clear (channel, 0, numSamples);
+
+    auto* leftChannel  = buffer.getWritePointer (0);
+    auto* rightChannel = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
+
+    auto* delayData = delayBuffer.getWritePointer (0);
+    const int delayBufferSize = delayBuffer.getNumSamples();
+
+    auto* directionParam = apvts.getRawParameterValue ("direction");
+    auto* delayMsParam   = apvts.getRawParameterValue ("delayMs");
+    auto* feedbackParam  = apvts.getRawParameterValue ("feedback");
+    auto* mixParam       = apvts.getRawParameterValue ("mix");
+    auto* toneParam      = apvts.getRawParameterValue ("tone");
+
+    const float directionDegrees = directionParam->load();
+    const float delayMs          = delayMsParam->load();
+    const float feedback         = feedbackParam->load();
+    const float mix              = mixParam->load();
+    const float tone             = toneParam->load();
+
+    const float dry = 1.0f - mix;
+
+    const float angleRadians = juce::degreesToRadians (directionDegrees);
+
+    // Left/right position from angle:
+    // 90° = right, 270° = left
+    const float pan = std::sin (angleRadians);
+
+    const float leftGain  = std::sqrt (0.5f * (1.0f - pan));
+    const float rightGain = std::sqrt (0.5f * (1.0f + pan));
+
+    // Front/back cue:
+    // 0° = front, 180° = back
+    const float frontness = std::cos (angleRadians);
+
+    // Rear = darker
+    const float brightness = juce::jmap (frontness, -1.0f, 1.0f, 0.45f, 1.0f);
+
+    const int baseDelaySamples = static_cast<int> ((delayMs / 1000.0f) * currentSampleRate);
+
+    // Tiny interaural time difference
+    const int maxItdSamples = static_cast<int> (0.0006 * currentSampleRate);
+    const int itdSamples = static_cast<int> (pan * (float) maxItdSamples);
+
+    // Tone control for wet smoothing/darkness
+    const float filterCoeff = juce::jmap (tone, 0.0f, 1.0f, 0.02f, 0.30f);
+
+    int localWritePosition = delayWritePosition;
+
+    for (int sample = 0; sample < numSamples; ++sample)
     {
-        auto* channelData = buffer.getWritePointer (channel);
+        const float inL = leftChannel[sample];
+        const float inR = (rightChannel != nullptr) ? rightChannel[sample] : inL;
 
-        // ..do something to the data...
+        // Mono input to the wet path
+        const float monoIn = 0.5f * (inL + inR);
+
+        // Read delayed samples with tiny ear offset
+        int leftReadPosition  = localWritePosition - baseDelaySamples + itdSamples;
+        int rightReadPosition = localWritePosition - baseDelaySamples - itdSamples;
+
+        while (leftReadPosition < 0)
+            leftReadPosition += delayBufferSize;
+        while (rightReadPosition < 0)
+            rightReadPosition += delayBufferSize;
+
+        leftReadPosition  %= delayBufferSize;
+        rightReadPosition %= delayBufferSize;
+
+        const float delayedLeftMono  = delayData[leftReadPosition];
+        const float delayedRightMono = delayData[rightReadPosition];
+
+        // Average the two for feedback path stability
+        const float delayedMono = 0.5f * (delayedLeftMono + delayedRightMono);
+
+        // Write input + feedback into delay line
+        delayData[localWritePosition] = monoIn + (delayedMono * feedback);
+
+        // Tone + rear darkening
+        const float rawWet = delayedMono * brightness;
+        wetFilterState += filterCoeff * (rawWet - wetFilterState);
+
+        const float wetLeft  = wetFilterState * leftGain;
+        const float wetRight = wetFilterState * rightGain;
+
+        leftChannel[sample] = (inL * dry) + (wetLeft * mix);
+
+        if (rightChannel != nullptr)
+            rightChannel[sample] = (inR * dry) + (wetRight * mix);
+
+        localWritePosition++;
+        if (localWritePosition >= delayBufferSize)
+            localWritePosition = 0;
     }
+
+    delayWritePosition = localWritePosition;
 }
 
 //==============================================================================
@@ -181,6 +270,33 @@ void HallAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     // You should use this method to restore your parameters from this memory block,
     // whose contents will have been created by the getStateInformation() call.
+}
+juce::AudioProcessorValueTreeState::ParameterLayout HallAudioProcessor::createParameterLayout()
+{
+    std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
+
+    params.push_back (std::make_unique<juce::AudioParameterFloat>(
+        "direction", "Direction",
+        juce::NormalisableRange<float> (0.0f, 360.0f, 1.0f), 0.0f));
+
+    params.push_back (std::make_unique<juce::AudioParameterFloat>(
+        "delayMs", "Delay",
+        juce::NormalisableRange<float> (20.0f, 250.0f, 1.0f), 120.0f));
+
+    params.push_back (std::make_unique<juce::AudioParameterFloat>(
+        "feedback", "Feedback",
+        juce::NormalisableRange<float> (0.0f, 0.95f, 0.01f), 0.35f));
+
+    params.push_back (std::make_unique<juce::AudioParameterFloat>(
+        "mix", "Mix",
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.35f));
+    
+    params.push_back (std::make_unique<juce::AudioParameterFloat>(
+    "tone", "Tone",
+    juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f),
+    0.6f));
+
+    return { params.begin(), params.end() };
 }
 
 //==============================================================================
