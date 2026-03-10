@@ -37,6 +37,10 @@ HallAudioProcessorEditor::HallAudioProcessorEditor (HallAudioProcessor& p)
     toneKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     toneKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 20);
     addAndMakeVisible (toneKnob);
+    
+    widthKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    widthKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 20);
+    addAndMakeVisible (widthKnob);
 
     directionAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.apvts, "direction", directionWheel);
@@ -52,6 +56,9 @@ HallAudioProcessorEditor::HallAudioProcessorEditor (HallAudioProcessor& p)
 
     toneAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.apvts, "tone", toneKnob);
+    
+    widthAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.apvts, "width", widthKnob);
     
     //labels
     directionLabel.setText ("Direction", juce::dontSendNotification);
@@ -74,11 +81,17 @@ HallAudioProcessorEditor::HallAudioProcessorEditor (HallAudioProcessor& p)
     toneLabel.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (toneLabel);
     
+    widthLabel.setText ("Width", juce::dontSendNotification);
+    widthLabel.setJustificationType (juce::Justification::centred);
+    widthLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+    addAndMakeVisible (widthLabel);
+    
     directionLabel.setColour (juce::Label::textColourId, juce::Colours::white);
     delayLabel.setColour (juce::Label::textColourId, juce::Colours::white);
     feedbackLabel.setColour (juce::Label::textColourId, juce::Colours::white);
     mixLabel.setColour (juce::Label::textColourId, juce::Colours::white);
     toneLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+    widthLabel.setColour (juce::Label::textColourId, juce::Colours::white);
 }
 
 HallAudioProcessorEditor::~HallAudioProcessorEditor()
@@ -103,11 +116,11 @@ void HallAudioProcessorEditor::resized()
     auto area = getLocalBounds().reduced (20);
 
     auto topArea = area.removeFromTop (320);
-    directionWheel.setBounds (topArea.reduced (60));
-    directionLabel.setBounds (topArea.removeFromTop (30));
+    directionLabel.setBounds (topArea.removeFromTop (25));
+    directionWheel.setBounds (topArea.reduced (40));
 
     auto bottomArea = area.reduced (10);
-    int sectionWidth = bottomArea.getWidth() / 4;
+    int sectionWidth = bottomArea.getWidth() / 5;
 
     auto delayArea = bottomArea.removeFromLeft (sectionWidth).reduced (10);
     delayLabel.setBounds (delayArea.removeFromTop (20));
@@ -121,7 +134,11 @@ void HallAudioProcessorEditor::resized()
     mixLabel.setBounds (mixArea.removeFromTop (20));
     mixKnob.setBounds (mixArea);
 
-    auto toneArea = bottomArea.reduced (10);
+    auto toneArea = bottomArea.removeFromLeft (sectionWidth).reduced (10);
     toneLabel.setBounds (toneArea.removeFromTop (20));
     toneKnob.setBounds (toneArea);
+
+    auto widthArea = bottomArea.reduced (10);
+    widthLabel.setBounds (widthArea.removeFromTop (20));
+    widthKnob.setBounds (widthArea);
 }

@@ -162,37 +162,43 @@ void HallAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     auto* feedbackParam  = apvts.getRawParameterValue ("feedback");
     auto* mixParam       = apvts.getRawParameterValue ("mix");
     auto* toneParam      = apvts.getRawParameterValue ("tone");
+    auto* widthParam = apvts.getRawParameterValue ("width");
 
     const float directionDegrees = directionParam->load();
     const float delayMs          = delayMsParam->load();
     const float feedback         = feedbackParam->load();
     const float mix              = mixParam->load();
     const float tone             = toneParam->load();
+    const float width = widthParam->load();
 
     const float dry = 1.0f - mix;
 
     const float angleRadians = juce::degreesToRadians (directionDegrees);
 
-    // Left/right position from angle:
-    // 90° = right, 270° = left
+    // Left/right position from angle: 90° = right, 270° = left
     const float pan = std::sin (angleRadians);
 
-    const float leftGain  = std::sqrt (0.5f * (1.0f - pan));
-    const float rightGain = std::sqrt (0.5f * (1.0f + pan));
+    // Tail/body pan: normal directional placement
+    const float tailLeftGain  = std::sqrt (0.5f * (1.0f - pan));
+    const float tailRightGain = std::sqrt (0.5f * (1.0f + pan));
 
-    // Front/back cue:
-    // 0° = front, 180° = back
+    // Early/source-focus pan: exaggerated by width
+    const float focusPan = juce::jlimit (-1.0f, 1.0f, (-pan) * width * 4.0f); //inverted pan angle to create opposite directional effect
+    const float earlyLeftGain  = std::sqrt (0.5f * (1.0f - focusPan));
+    const float earlyRightGain = std::sqrt (0.5f * (1.0f + focusPan));
+
+    // Front/back cue: 0° = front, 180° = back
     const float frontness = std::cos (angleRadians);
 
-    // Rear = darker
+    // Reduce brightness for "rear"
     const float brightness = juce::jmap (frontness, -1.0f, 1.0f, 0.45f, 1.0f);
 
     const int baseDelaySamples = static_cast<int> ((delayMs / 1000.0f) * currentSampleRate);
 
-    // Tiny interaural time difference
-    const int maxItdSamples = static_cast<int> (0.0006 * currentSampleRate);
-    const int itdSamples = static_cast<int> (pan * (float) maxItdSamples);
-
+    // interaural time difference
+    const float maxItdMs = juce::jmap (width, 0.0f, 1.0f, 0.2f, 1.2f);
+    const int maxItdSamples = static_cast<int> ((maxItdMs / 1000.0f) * currentSampleRate);
+    const int itdSamples = static_cast<int> (focusPan * (float) maxItdSamples);
     // Tone control for wet smoothing/darkness
     const float filterCoeff = juce::jmap (tone, 0.0f, 1.0f, 0.02f, 0.30f);
 
@@ -205,6 +211,11 @@ void HallAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 
         // Mono input to the wet path
         const float monoIn = 0.5f * (inL + inR);
+
+        // calculate initial localization placement level
+        const float earlyAmount = juce::jmap (width, 0.0f, 1.0f, 0.10f, 0.60f);
+        const float earlyLeft  = monoIn * earlyLeftGain * earlyAmount;
+        const float earlyRight = monoIn * earlyRightGain * earlyAmount;
 
         // Read delayed samples with tiny ear offset
         int leftReadPosition  = localWritePosition - baseDelaySamples + itdSamples;
@@ -231,13 +242,13 @@ void HallAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         const float rawWet = delayedMono * brightness;
         wetFilterState += filterCoeff * (rawWet - wetFilterState);
 
-        const float wetLeft  = wetFilterState * leftGain;
-        const float wetRight = wetFilterState * rightGain;
+        const float wetLeft  = wetFilterState * tailLeftGain;
+        const float wetRight = wetFilterState * tailRightGain;
 
-        leftChannel[sample] = (inL * dry) + (wetLeft * mix);
+        leftChannel[sample] = (inL * dry) + earlyLeft + (wetLeft * mix);
 
         if (rightChannel != nullptr)
-            rightChannel[sample] = (inR * dry) + (wetRight * mix);
+            rightChannel[sample] = (inR * dry) + earlyRight + (wetRight * mix);
 
         localWritePosition++;
         if (localWritePosition >= delayBufferSize)
@@ -295,6 +306,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout HallAudioProcessor::createPa
     "tone", "Tone",
     juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f),
     0.6f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat>(
+    "width", "Width",
+    juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f),
+    0.5f));
 
     return { params.begin(), params.end() };
 }
