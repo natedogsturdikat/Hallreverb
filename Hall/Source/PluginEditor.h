@@ -10,6 +10,7 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "CustomLookAndFeel.h"
 
 //==============================================================================
 /**
@@ -49,5 +50,7 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> toneAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> widthAttachment;
 
+    CustomLookAndFeel customLookAndFeel;
+    
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HallAudioProcessorEditor)
 };

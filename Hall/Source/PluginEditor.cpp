@@ -18,8 +18,11 @@ HallAudioProcessorEditor::HallAudioProcessorEditor (HallAudioProcessor& p)
      setSize (500, 500);
     
      //Sliders
+    directionWheel.setLookAndFeel (&customLookAndFeel);
     directionWheel.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     directionWheel.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 20);
+    directionWheel.setRotaryParameters (0.0f, juce::MathConstants<float>::twoPi, true);
+    directionWheel.setTextValueSuffix (juce::String::fromUTF8 ("\xC2\xB0")); //adds degree symbol 
     addAndMakeVisible (directionWheel);
 
     delayKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
@@ -96,6 +99,7 @@ HallAudioProcessorEditor::HallAudioProcessorEditor (HallAudioProcessor& p)
 
 HallAudioProcessorEditor::~HallAudioProcessorEditor()
 {
+    directionWheel.setLookAndFeel (nullptr);
 }
 
 //==============================================================================
