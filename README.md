@@ -5,11 +5,17 @@ percieved local effect and direction. This is a fun idea I've had for a while an
 as I imagined. 
 
 Direction: The Big Knob in the middle
+
 The thumb on the slider indicates the source location, and the reverb tail is then sent 180 degrees opposite. 9 o'clock is left to right, 11 o'clock is in front to the left to behind to the right
 
 Reverb Shaping Controls:
+
 Delay: controls the delay length before reverb starts, effectively "predelay"
+
 Decay: controls the length of the reverb tail
+
 Mix: basic dry/wet control
+
 Tone: a basic low pass filter to soften the timbre of the reverb
+
 Width: (WIP) controls the starting position of the verb, higher width is further from center, essentially extends the length of the direction reverb
