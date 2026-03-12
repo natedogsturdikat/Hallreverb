@@ -18,4 +18,4 @@ Mix: basic dry/wet control
 
 Tone: a basic low pass filter to soften the timbre of the reverb
 
-Width: (WIP) controls the starting position of the verb. Essentially distance or proximity, the higher the width param the further from the mono center or listener the source is, in the opposite direction of the tail angle (direction wheel param value)
+Width: (WIP) controls the starting position of the verb. Essentially distance or proximity, the higher the width param the further from the mono center or listener the source is, in the opposite direction of the tail angle (direction wheel param value). Basically, if width is 0, the reverb covers the radius of the wheel. If width is max, it covers the diameter.
