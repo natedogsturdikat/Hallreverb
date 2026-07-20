@@ -21,7 +21,7 @@ public:
         setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colours::darkgrey);
         setColour (juce::Label::textColourId, juce::Colours::white);
     }
-
+    //custom rotary for direction wheel, draws an arrow extending from center
     void drawRotarySlider (juce::Graphics& g,
                            int x, int y, int width, int height,
                            float sliderPosProportional,

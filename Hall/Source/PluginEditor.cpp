@@ -19,9 +19,13 @@ HallAudioProcessorEditor::HallAudioProcessorEditor (HallAudioProcessor& p)
     
      //Sliders
     directionWheel.setLookAndFeel (&customLookAndFeel);
-    directionWheel.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    directionWheel.setSliderStyle (juce::Slider::Rotary);
     directionWheel.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 20);
-    directionWheel.setRotaryParameters (0.0f, juce::MathConstants<float>::twoPi, true);
+    //directionWheel.setRotaryParameters (0.0f, juce::MathConstants<float>::twoPi, true);
+    directionWheel.setRotaryParameters (
+    0.0f,
+    juce::MathConstants<float>::twoPi,
+    false);
     directionWheel.setTextValueSuffix (juce::String::fromUTF8 ("\xC2\xB0")); //adds degree symbol 
     addAndMakeVisible (directionWheel);
 
