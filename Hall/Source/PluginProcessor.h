@@ -9,6 +9,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "HallReverbEngine.h"
 
 //==============================================================================
 /**
@@ -60,10 +61,15 @@ public:
 
 private:
     //==============================================================================
-    juce::AudioBuffer<float> delayBuffer;
-    int delayWritePosition = 0;
+    //juce::AudioBuffer<float> delayBuffer;
+    //int delayWritePosition = 0;
     double currentSampleRate = 44100.0;
-    float wetFilterState = 0.0f;
+    //float wetFilterState = 0.0f;
+    HallReverbEngine hallReverb;
+
+    juce::AudioBuffer<float> monoReverbInput;
+    juce::AudioBuffer<float> earlyReverbOutput;
+    juce::AudioBuffer<float> lateReverbOutput;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HallAudioProcessor)
 };

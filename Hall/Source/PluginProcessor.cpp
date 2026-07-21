@@ -96,22 +96,39 @@ void HallAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
-    juce::ignoreUnused (samplesPerBlock);
+    //juce::ignoreUnused (samplesPerBlock);
 
     currentSampleRate = sampleRate;
-
+    
+    /* old prototype implementation
     const int delayBufferSize = static_cast<int> (2.0 * sampleRate);
     delayBuffer.setSize (1, delayBufferSize);
     delayBuffer.clear();
 
     delayWritePosition = 0;
     wetFilterState = 0.0f;
+    */
+
+    hallReverb.prepare (sampleRate);
+
+    monoReverbInput.setSize (1, samplesPerBlock);
+    earlyReverbOutput.setSize (1, samplesPerBlock);
+    lateReverbOutput.setSize (1, samplesPerBlock);
+
+    monoReverbInput.clear();
+    earlyReverbOutput.clear();
+    lateReverbOutput.clear();
+
+    hallReverb.setPreDelayMs (35.0f);
+    hallReverb.setDecaySeconds (3.4f);
+    hallReverb.setDampingHz (6500.0f);
 }
 
 void HallAudioProcessor::releaseResources()
 {
     // When playback stops, you can use this as an opportunity to free up any
     // spare memory, etc.
+    hallReverb.reset();
 }
 
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -140,122 +157,211 @@ bool HallAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) con
 }
 #endif
 
-void HallAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+void HallAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
+                                       juce::MidiBuffer& midiMessages)
 {
     juce::ignoreUnused (midiMessages);
     juce::ScopedNoDenormals noDenormals;
 
-    const int numSamples = buffer.getNumSamples();
+    const int numSamples  = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
 
+    if (numChannels == 0)
+        return;
+
+    // Clear any output channels beyond stereo.
     for (int channel = 2; channel < numChannels; ++channel)
         buffer.clear (channel, 0, numSamples);
 
-    auto* leftChannel  = buffer.getWritePointer (0);
-    auto* rightChannel = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
+    auto* leftChannel = buffer.getWritePointer (0);
 
-    auto* delayData = delayBuffer.getWritePointer (0);
-    const int delayBufferSize = delayBuffer.getNumSamples();
+    auto* rightChannel = numChannels > 1
+        ? buffer.getWritePointer (1)
+        : nullptr;
 
-    auto* directionParam = apvts.getRawParameterValue ("direction");
-    auto* delayMsParam   = apvts.getRawParameterValue ("delayMs");
-    auto* feedbackParam  = apvts.getRawParameterValue ("feedback");
-    auto* mixParam       = apvts.getRawParameterValue ("mix");
-    auto* toneParam      = apvts.getRawParameterValue ("tone");
-    auto* widthParam = apvts.getRawParameterValue ("width");
+    // The working buffers should have been allocated in prepareToPlay().
+    jassert (monoReverbInput.getNumSamples() >= numSamples);
+    jassert (earlyReverbOutput.getNumSamples() >= numSamples);
+    jassert (lateReverbOutput.getNumSamples() >= numSamples);
 
-    const float directionDegrees = directionParam->load();
-    const float delayMs          = delayMsParam->load();
-    const float feedback         = feedbackParam->load();
-    const float mix              = mixParam->load();
-    const float tone             = toneParam->load();
-    const float width = widthParam->load();
+    if (monoReverbInput.getNumSamples() < numSamples
+        || earlyReverbOutput.getNumSamples() < numSamples
+        || lateReverbOutput.getNumSamples() < numSamples)
+    {
+        return;
+    }
 
-    const float dry = 1.0f - mix;
+    auto* monoInput = monoReverbInput.getWritePointer (0);
+    auto* earlyMono = earlyReverbOutput.getWritePointer (0);
+    auto* lateMono  = lateReverbOutput.getWritePointer (0);
 
-    const float angleRadians = juce::degreesToRadians (directionDegrees);
+    //==========================================================================
+    // Read plugin parameters
 
-    // Left/right position from angle: 90° = right, 270° = left
-    const float pan = std::sin (angleRadians);
+    const float directionDegrees =
+        apvts.getRawParameterValue ("direction")->load();
 
-    // Tail/body pan: normal directional placement
-    const float tailLeftGain  = std::sqrt (0.5f * (1.0f - pan));
-    const float tailRightGain = std::sqrt (0.5f * (1.0f + pan));
+    const float preDelayMs =
+        apvts.getRawParameterValue ("delayMs")->load();
 
-    // Early/source-focus pan: exaggerated by width
-    const float focusPan = juce::jlimit (-1.0f, 1.0f, (-pan) * width * 4.0f); //inverted pan angle to create opposite directional effect
-    const float earlyLeftGain  = std::sqrt (0.5f * (1.0f - focusPan));
-    const float earlyRightGain = std::sqrt (0.5f * (1.0f + focusPan));
+    const float feedback =
+        apvts.getRawParameterValue ("feedback")->load();
 
-    // Front/back cue: 0° = front, 180° = back
-    const float frontness = std::cos (angleRadians);
+    const float mix =
+        apvts.getRawParameterValue ("mix")->load();
 
-    // Reduce brightness for "rear"
-    const float brightness = juce::jmap (frontness, -1.0f, 1.0f, 0.45f, 1.0f);
+    const float tone =
+        apvts.getRawParameterValue ("tone")->load();
 
-    const int baseDelaySamples = static_cast<int> ((delayMs / 1000.0f) * currentSampleRate);
+    const float width =
+        apvts.getRawParameterValue ("width")->load();
 
-    // interaural time difference
-    const float maxItdMs = juce::jmap (width, 0.0f, 1.0f, 0.2f, 1.2f);
-    const int maxItdSamples = static_cast<int> ((maxItdMs / 1000.0f) * currentSampleRate);
-    const int itdSamples = static_cast<int> (focusPan * (float) maxItdSamples);
-    // Tone control for wet smoothing/darkness
-    const float filterCoeff = juce::jmap (tone, 0.0f, 1.0f, 0.02f, 0.30f);
+    // Convert Feedback into an approximate hall decay time.
+    const float decaySeconds = juce::jmap (
+        feedback,
+        0.0f,
+        0.95f,
+        0.8f,
+        8.0f);
 
-    int localWritePosition = delayWritePosition;
+    // Higher Tone values create a brighter reverb tail.
+    const float dampingHz = juce::jmap (
+        tone,
+        0.0f,
+        1.0f,
+        1800.0f,
+        12000.0f);
+
+    hallReverb.setPreDelayMs (preDelayMs);
+    hallReverb.setDecaySeconds (decaySeconds);
+    hallReverb.setDampingHz (dampingHz);
+
+    //==========================================================================
+    // Create the mono signal sent into the reverb engine
 
     for (int sample = 0; sample < numSamples; ++sample)
     {
-        const float inL = leftChannel[sample];
-        const float inR = (rightChannel != nullptr) ? rightChannel[sample] : inL;
+        const float inputLeft = leftChannel[sample];
 
-        // Mono input to the wet path
-        const float monoIn = 0.5f * (inL + inR);
+        const float inputRight = rightChannel != nullptr
+            ? rightChannel[sample]
+            : inputLeft;
 
-        // calculate initial localization placement level
-        const float earlyAmount = juce::jmap (width, 0.0f, 1.0f, 0.10f, 0.60f);
-        const float earlyLeft  = monoIn * earlyLeftGain * earlyAmount;
-        const float earlyRight = monoIn * earlyRightGain * earlyAmount;
-
-        // Read delayed samples with tiny ear offset
-        int leftReadPosition  = localWritePosition - baseDelaySamples + itdSamples;
-        int rightReadPosition = localWritePosition - baseDelaySamples - itdSamples;
-
-        while (leftReadPosition < 0)
-            leftReadPosition += delayBufferSize;
-        while (rightReadPosition < 0)
-            rightReadPosition += delayBufferSize;
-
-        leftReadPosition  %= delayBufferSize;
-        rightReadPosition %= delayBufferSize;
-
-        const float delayedLeftMono  = delayData[leftReadPosition];
-        const float delayedRightMono = delayData[rightReadPosition];
-
-        // Average the two for feedback path stability
-        const float delayedMono = 0.5f * (delayedLeftMono + delayedRightMono);
-
-        // Write input + feedback into delay line
-        delayData[localWritePosition] = monoIn + (delayedMono * feedback);
-
-        // Tone + rear darkening
-        const float rawWet = delayedMono * brightness;
-        wetFilterState += filterCoeff * (rawWet - wetFilterState);
-
-        const float wetLeft  = wetFilterState * tailLeftGain;
-        const float wetRight = wetFilterState * tailRightGain;
-
-        leftChannel[sample] = (inL * dry) + earlyLeft + (wetLeft * mix);
-
-        if (rightChannel != nullptr)
-            rightChannel[sample] = (inR * dry) + earlyRight + (wetRight * mix);
-
-        localWritePosition++;
-        if (localWritePosition >= delayBufferSize)
-            localWritePosition = 0;
+        monoInput[sample] =
+            0.5f * (inputLeft + inputRight);
     }
 
-    delayWritePosition = localWritePosition;
+    // Generate separate early-reflection and late-tail signals.
+    hallReverb.processBlock (
+        monoInput,
+        earlyMono,
+        lateMono,
+        numSamples);
+
+    //==========================================================================
+    // Temporary stereo direction processing
+    //
+    // The late tail follows Direction.
+    //
+    // Width controls how far the early reflections move from the center
+    // toward the position opposite the tail.
+    //
+    // This is still gain-based stereo panning. HRIR convolution will later
+    // replace this section for true front/back positioning.
+
+    const float directionRadians =
+        juce::degreesToRadians (directionDegrees);
+
+    // 90 degrees = right.
+    // 270 degrees = left.
+    const float tailPan =
+        std::sin (directionRadians);
+
+    // Constant-power tail panning.
+    const float tailLeftGain =
+        std::sqrt (0.5f * (1.0f - tailPan));
+
+    const float tailRightGain =
+        std::sqrt (0.5f * (1.0f + tailPan));
+
+    //==========================================================================
+    // Width response
+
+    const float widthAmount =
+        juce::jlimit (0.0f, 1.0f, width);
+
+    // Stretch the useful range so low and middle Width values move gradually.
+    //
+    // Width 0.20 -> about 0.018
+    // Width 0.50 -> about 0.177
+    // Width 0.80 -> about 0.572
+    // Width 1.00 -> 1.000
+    const float shapedWidth =
+        std::pow (widthAmount, 2.5f); //this float controls response curve of width knob, higher = more fine tune
+
+    // The origin moves in the opposite direction from the tail.
+    //
+    // Width = 0:
+    //     earlyPan = 0, so the early reflections are centered.
+    //
+    // Width = 1:
+    //     earlyPan = -tailPan, so they are fully opposite.
+    const float earlyPan =
+        -tailPan * shapedWidth;
+
+    // Constant-power early-reflection panning.
+    const float earlyLeftGain =
+        std::sqrt (0.5f * (1.0f - earlyPan));
+
+    const float earlyRightGain =
+        std::sqrt (0.5f * (1.0f + earlyPan));
+
+    // Starting balance between the early reflections and dense late tail.
+    constexpr float earlyLevel = 0.65f;
+    constexpr float lateLevel  = 1.0f;
+
+    const float dryGain = 1.0f - mix;
+    const float wetGain = mix;
+
+    //==========================================================================
+    // Mix the dry signal with the hall reverb
+
+    for (int sample = 0; sample < numSamples; ++sample)
+    {
+        const float dryLeft = leftChannel[sample];
+
+        const float dryRight = rightChannel != nullptr
+            ? rightChannel[sample]
+            : dryLeft;
+
+        const float wetLeft =
+            earlyMono[sample] * earlyLeftGain * earlyLevel
+            + lateMono[sample] * tailLeftGain * lateLevel;
+
+        const float wetRight =
+            earlyMono[sample] * earlyRightGain * earlyLevel
+            + lateMono[sample] * tailRightGain * lateLevel;
+
+        if (rightChannel != nullptr)
+        {
+            leftChannel[sample] =
+                dryLeft * dryGain
+                + wetLeft * wetGain;
+
+            rightChannel[sample] =
+                dryRight * dryGain
+                + wetRight * wetGain;
+        }
+        else
+        {
+            const float monoWet =
+                0.5f * (wetLeft + wetRight);
+
+            leftChannel[sample] =
+                dryLeft * dryGain
+                + monoWet * wetGain;
+        }
+    }
 }
 
 //==============================================================================
@@ -288,7 +394,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout HallAudioProcessor::createPa
 
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
         "direction", "Direction",
-        juce::NormalisableRange<float> (0.0f, 360.0f, 1.0f), 0.0f));
+        juce::NormalisableRange<float> (0.0f, 359.9f, 1.0f), 0.0f));
 
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
         "delayMs", "Delay",
