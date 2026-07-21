@@ -66,6 +66,30 @@ HallAudioProcessorEditor::HallAudioProcessorEditor (HallAudioProcessor& p)
     
     widthAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.apvts, "width", widthKnob);
+    widthKnob.onValueChange = [this]//sync ui graphic with width control
+    {
+        const float visualWidth =
+            juce::jlimit (
+                0.0f,
+                1.0f,
+                static_cast<float> (
+                    widthKnob.getValue()));
+
+        customLookAndFeel.setWidthAmount (
+            visualWidth);
+
+        directionWheel.repaint();
+    };
+
+// Synchronize the graphic with the current restored parameter value.
+customLookAndFeel.setWidthAmount (
+    juce::jlimit (
+        0.0f,
+        1.0f,
+        static_cast<float> (
+            widthKnob.getValue())));
+
+directionWheel.repaint();
     
     //labels
     directionLabel.setText ("Direction", juce::dontSendNotification);
