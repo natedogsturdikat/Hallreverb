@@ -68,14 +68,14 @@ public:
         preDelaySamples = preDelayMs <= 0.0f ? 0 : millisecondsToSamples (preDelayMs);
     }
 
-    // Approximate broadband RT60. Damping makes the high-frequency RT60 shorter.
+    // Approximate broadband RT60. Damping makes the high-frequency RT60 shorter
     void setDecaySeconds (float seconds) noexcept
     {
         decaySeconds = std::clamp (seconds, 0.4f, 12.0f);
 
         for (std::size_t i = 0; i < numLines; ++i)
         {
-            // Gain required for a -60 dB decay after decaySeconds.
+            // Gain required for a -60 dB decay after decaySeconds
             feedbackGain[i] = std::pow (10.0f,
                                         -3.0f * fdnDelaySeconds[i] / decaySeconds);
         }
@@ -134,8 +134,7 @@ public:
             early += inputHistory.read (tapDelay) * earlyGains[tap];
         }
 
-        // Input diffusion turns attacks into a dense cloud before they enter
-        // the long feedback network.
+        // Input diffusion before feedback
         float diffused = predelayed;
         for (auto& diffuser : diffusers)
             diffused = diffuser.process (diffused);
@@ -154,8 +153,7 @@ public:
             delayedSum += delayed[i];
         }
 
-        // Householder feedback matrix: orthogonal, energy-preserving before the
-        // per-line RT60 gains are applied, and inexpensive for eight lines.
+        // Householder feedback matrix: orthogonal, energy-preserving before the per-line RT60 gains are applied
         constexpr float householderScale = 2.0f / static_cast<float> (numLines);
 
         for (std::size_t i = 0; i < numLines; ++i)
@@ -168,8 +166,7 @@ public:
         for (std::size_t i = 0; i < numLines; ++i)
             late += outputSigns[i] * delayed[i];
 
-        // Conservative output scaling leaves room for later HRIR filtering and
-        // dry/wet mixing.
+        // output scaling leaves room for later HRIR filtering and dry/wet mixing.
         earlyOutput = early * 0.42f;
         lateOutput = late * 0.18f;
     }

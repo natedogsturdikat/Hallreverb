@@ -58,7 +58,6 @@ private:
     double currentSampleRate =
         HrirData::kSourceSampleRate;
 
-    // Unwrapped angles allow movement across 359/0 without reversing.
     float currentUnwrappedAngle = 0.0f;
     float targetUnwrappedAngle = 0.0f;
 

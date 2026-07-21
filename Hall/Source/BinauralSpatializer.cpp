@@ -16,9 +16,9 @@ void BinauralSpatializer::prepare (
     juce::ignoreUnused (maximumBlockSize);
 
     currentSampleRate =
-        std::max (1.0, sampleRate);
+        std::max (1.0, sampleRate); //matches host sample rate
 
-    // Resampling, interpolation, and allocation happen here,
+    // Resampling, interpolation, and allocation
     // never inside the audio callback.
     buildHostRateHrirTable (currentSampleRate);
 
@@ -128,8 +128,7 @@ void BinauralSpatializer::processMonoToStereo (
         const float smoothedAngle =
             getNextSmoothedAngle();
 
-        // Select the nearest precomputed whole-degree HRIR.
-        // lround may return 360 near 359.5, so modulo wraps it.
+        // Rounds to nearest precomputed whole-degree HRIR
         const int angleIndex =
             static_cast<int> (
                 std::lround (smoothedAngle))
@@ -147,7 +146,7 @@ void BinauralSpatializer::processMonoToStereo (
         int historyPosition =
             historyWritePosition;
 
-        // Direct FIR convolution.
+        //FIR convolution
         for (int tap = 0;
              tap < hrirLength;
              ++tap)
@@ -197,8 +196,7 @@ void BinauralSpatializer::buildHostRateHrirTable (
         / static_cast<double> (
             HrirData::kSourceSampleRate);
 
-    // Maintain approximately the same HRIR duration when the
-    // plugin runs at a sample rate other than 44.1 kHz.
+    // Maintains HRIR duration when at a sample rate other than 44.1 kHz.
     hrirLength = std::max (
         1,
         static_cast<int> (
@@ -328,7 +326,7 @@ void BinauralSpatializer::buildHostRateHrirTable (
             sofaAngle * inverseAzimuthStep;
 
         const float tableFloor =
-            std::floor (tablePosition);
+            std::floor (tablePosition); //round down to nearest table int
 
         const int lowerIndex =
             static_cast<int> (tableFloor)
@@ -396,7 +394,7 @@ void BinauralSpatializer::buildHostRateHrirTable (
                 destinationOffset]
                 = rightCoefficient;
 
-            leftEnergy +=
+            leftEnergy +=        //sum of left HRIR coefficients squared
                 leftCoefficient
                 * leftCoefficient;
 
@@ -405,14 +403,11 @@ void BinauralSpatializer::buildHostRateHrirTable (
                 * rightCoefficient;
         }
 
-        // Apply one shared gain to both ears.
-        //
-        // This stabilizes total loudness around the circle without
-        // removing the level difference between the two ears.
+        // applies gain to maintain equal loudness around the head
         const float combinedEnergy =
             leftEnergy + rightEnergy;
 
-        const float directionGain =
+        const float directionGain =  
             combinedEnergy > 0.0f
             ? 1.0f
                 / std::sqrt (combinedEnergy)

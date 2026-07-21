@@ -140,8 +140,7 @@ void HallAudioProcessor::prepareToPlay (
     earlySpatializer.setAngleDegrees (
         initialDirection + 180.0f);
 
-    // Move immediately to the restored parameter value rather than
-    // sweeping there from zero when playback begins.
+    // reset to the restored parameter value 
     earlySpatializer.reset();
     lateSpatializer.reset();
 
@@ -190,9 +189,7 @@ bool HallAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) con
 }
 #endif
 
-void HallAudioProcessor::processBlock (
-    juce::AudioBuffer<float>& buffer,
-    juce::MidiBuffer& midiMessages)
+void HallAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ignoreUnused (midiMessages);
     juce::ScopedNoDenormals noDenormals;
@@ -223,7 +220,7 @@ void HallAudioProcessor::processBlock (
         numChannels > 1
         ? buffer.getWritePointer (1)
         : nullptr;
-
+    //simple check for host buffer size compatability
     const bool workingBuffersAreLargeEnough =
         monoReverbInput.getNumSamples() >= numSamples
         && earlyReverbOutput.getNumSamples() >= numSamples
@@ -310,7 +307,7 @@ void HallAudioProcessor::processBlock (
         dampingHz);
 
     //======================================================================
-    // Create the mono signal sent into the hall
+    // Create the mono signal sent into the "hall"
 
     for (int sample = 0;
          sample < numSamples;
@@ -336,7 +333,7 @@ void HallAudioProcessor::processBlock (
         numSamples);
 
     //======================================================================
-    // Determine the two positions
+    // Determine the source position and destination
 
     const float tailDirection =
         HorizontalHrirDatabase::wrap360 (
@@ -367,13 +364,8 @@ void HallAudioProcessor::processBlock (
         numSamples);
 
     //======================================================================
-    // Width
-    //
-    // Width 0:
-    //   centered early reflections
-    //
-    // Width 1:
-    //   fully binaural early reflections opposite the tail
+    // Width 0: centered early reflections
+    // Width 1: early reflections fullyopposite the tail
 
     const float widthAmount =
         juce::jlimit (
@@ -386,9 +378,7 @@ void HallAudioProcessor::processBlock (
             widthAmount,
             2.5f);
 
-    // These two signals are highly correlated because both originate
-    // from earlyMono. A linear blend is preferable here; equal-power
-    // blending could produce a noticeable volume boost in the middle.
+    // linear blend
     const float centredOriginAmount =
         1.0f - shapedWidth;
 
@@ -486,18 +476,35 @@ juce::AudioProcessorEditor* HallAudioProcessor::createEditor()
 }
 
 //==============================================================================
-void HallAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
+void HallAudioProcessor::getStateInformation (
+    juce::MemoryBlock& destData)
 {
-    // You should use this method to store your parameters in the memory block.
-    // You could do that either as raw data, or use the XML or ValueTree classes
-    // as intermediaries to make it easy to save and load complex data.
+    const auto state = apvts.copyState();
+
+    juce::MemoryOutputStream stream (
+        destData,
+        false);
+
+    state.writeToStream (stream);
 }
 
-void HallAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
+void HallAudioProcessor::setStateInformation (
+    const void* data,
+    int sizeInBytes)
 {
-    // You should use this method to restore your parameters from this memory block,
-    // whose contents will have been created by the getStateInformation() call.
+    const auto restoredState =
+        juce::ValueTree::readFromData (
+            data,
+            static_cast<std::size_t> (sizeInBytes));
+
+    if (restoredState.isValid()
+        && restoredState.hasType (
+            apvts.state.getType()))
+    {
+        apvts.replaceState (restoredState);
+    }
 }
+
 juce::AudioProcessorValueTreeState::ParameterLayout HallAudioProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
