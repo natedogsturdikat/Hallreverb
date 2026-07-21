@@ -1,8 +1,6 @@
 Hall is a spatialization tool designed to create highly directional reverb sends. 
 
-This prototype is not technically a proper reverb, but the filtered delays help simulate the use of the plugin. Uses basic stereo to create
-percieved local effect and direction. This is an idea I've had for a while and tried a quick implementation to see if it would be as fun 
-as I imagined. 
+Uses a simplified binaraul SOFA dataset to create a 2d surround sound that allows for fine tune reverb, putting binaural mixing capabilities into a simple effect vst
 
 Direction: The Big Knob in the middle
 
