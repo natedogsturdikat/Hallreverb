@@ -10,6 +10,7 @@
 
 #include <JuceHeader.h>
 #include "HallReverbEngine.h"
+#include "BinauralSpatializer.h"
 
 //==============================================================================
 /**
@@ -70,6 +71,12 @@ private:
     juce::AudioBuffer<float> monoReverbInput;
     juce::AudioBuffer<float> earlyReverbOutput;
     juce::AudioBuffer<float> lateReverbOutput;
+    
+    BinauralSpatializer earlySpatializer;
+    BinauralSpatializer lateSpatializer;
+    
+    juce::AudioBuffer<float> earlySpatialOutput;
+    juce::AudioBuffer<float> lateSpatialOutput;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HallAudioProcessor)
 };

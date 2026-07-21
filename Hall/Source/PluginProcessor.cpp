@@ -8,6 +8,7 @@
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <cmath>
 
 //==============================================================================
 HallAudioProcessor::HallAudioProcessor()
@@ -92,28 +93,25 @@ void HallAudioProcessor::changeProgramName (int index, const juce::String& newNa
 }
 
 //==============================================================================
-void HallAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+void HallAudioProcessor::prepareToPlay (
+    double sampleRate,
+    int samplesPerBlock)
 {
-    // Use this method as the place to do any pre-playback
-    // initialisation that you need..
-    //juce::ignoreUnused (samplesPerBlock);
-
     currentSampleRate = sampleRate;
-    
-    /* old prototype implementation
-    const int delayBufferSize = static_cast<int> (2.0 * sampleRate);
-    delayBuffer.setSize (1, delayBufferSize);
-    delayBuffer.clear();
-
-    delayWritePosition = 0;
-    wetFilterState = 0.0f;
-    */
 
     hallReverb.prepare (sampleRate);
 
-    monoReverbInput.setSize (1, samplesPerBlock);
-    earlyReverbOutput.setSize (1, samplesPerBlock);
-    lateReverbOutput.setSize (1, samplesPerBlock);
+    monoReverbInput.setSize (
+        1,
+        samplesPerBlock);
+
+    earlyReverbOutput.setSize (
+        1,
+        samplesPerBlock);
+
+    lateReverbOutput.setSize (
+        1,
+        samplesPerBlock);
 
     monoReverbInput.clear();
     earlyReverbOutput.clear();
@@ -122,13 +120,48 @@ void HallAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     hallReverb.setPreDelayMs (35.0f);
     hallReverb.setDecaySeconds (3.4f);
     hallReverb.setDampingHz (6500.0f);
+
+    // Build a separate FIR state for the early and late signals.
+    earlySpatializer.prepare (
+        sampleRate,
+        samplesPerBlock);
+
+    lateSpatializer.prepare (
+        sampleRate,
+        samplesPerBlock);
+
+    const float initialDirection =
+        apvts.getRawParameterValue (
+            "direction")->load();
+
+    lateSpatializer.setAngleDegrees (
+        initialDirection);
+
+    earlySpatializer.setAngleDegrees (
+        initialDirection + 180.0f);
+
+    // Move immediately to the restored parameter value rather than
+    // sweeping there from zero when playback begins.
+    earlySpatializer.reset();
+    lateSpatializer.reset();
+
+    earlySpatialOutput.setSize (
+        2,
+        samplesPerBlock);
+
+    lateSpatialOutput.setSize (
+        2,
+        samplesPerBlock);
+
+    earlySpatialOutput.clear();
+    lateSpatialOutput.clear();
 }
 
 void HallAudioProcessor::releaseResources()
 {
-    // When playback stops, you can use this as an opportunity to free up any
-    // spare memory, etc.
     hallReverb.reset();
+    earlySpatializer.reset();
+    lateSpatializer.reset();
 }
 
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -157,190 +190,266 @@ bool HallAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) con
 }
 #endif
 
-void HallAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
-                                       juce::MidiBuffer& midiMessages)
+void HallAudioProcessor::processBlock (
+    juce::AudioBuffer<float>& buffer,
+    juce::MidiBuffer& midiMessages)
 {
     juce::ignoreUnused (midiMessages);
     juce::ScopedNoDenormals noDenormals;
 
-    const int numSamples  = buffer.getNumSamples();
-    const int numChannels = buffer.getNumChannels();
+    const int numSamples =
+        buffer.getNumSamples();
+
+    const int numChannels =
+        buffer.getNumChannels();
 
     if (numChannels == 0)
         return;
 
-    // Clear any output channels beyond stereo.
-    for (int channel = 2; channel < numChannels; ++channel)
-        buffer.clear (channel, 0, numSamples);
+    for (int channel = 2;
+         channel < numChannels;
+         ++channel)
+    {
+        buffer.clear (
+            channel,
+            0,
+            numSamples);
+    }
 
-    auto* leftChannel = buffer.getWritePointer (0);
+    auto* leftChannel =
+        buffer.getWritePointer (0);
 
-    auto* rightChannel = numChannels > 1
+    auto* rightChannel =
+        numChannels > 1
         ? buffer.getWritePointer (1)
         : nullptr;
 
-    // The working buffers should have been allocated in prepareToPlay().
-    jassert (monoReverbInput.getNumSamples() >= numSamples);
-    jassert (earlyReverbOutput.getNumSamples() >= numSamples);
-    jassert (lateReverbOutput.getNumSamples() >= numSamples);
+    const bool workingBuffersAreLargeEnough =
+        monoReverbInput.getNumSamples() >= numSamples
+        && earlyReverbOutput.getNumSamples() >= numSamples
+        && lateReverbOutput.getNumSamples() >= numSamples
+        && earlySpatialOutput.getNumSamples() >= numSamples
+        && lateSpatialOutput.getNumSamples() >= numSamples;
 
-    if (monoReverbInput.getNumSamples() < numSamples
-        || earlyReverbOutput.getNumSamples() < numSamples
-        || lateReverbOutput.getNumSamples() < numSamples)
-    {
+    jassert (workingBuffersAreLargeEnough);
+
+    if (! workingBuffersAreLargeEnough)
         return;
-    }
 
-    auto* monoInput = monoReverbInput.getWritePointer (0);
-    auto* earlyMono = earlyReverbOutput.getWritePointer (0);
-    auto* lateMono  = lateReverbOutput.getWritePointer (0);
+    auto* monoInput =
+        monoReverbInput.getWritePointer (0);
 
-    //==========================================================================
-    // Read plugin parameters
+    auto* earlyMono =
+        earlyReverbOutput.getWritePointer (0);
+
+    auto* lateMono =
+        lateReverbOutput.getWritePointer (0);
+
+    auto* earlySpatialLeft =
+        earlySpatialOutput.getWritePointer (0);
+
+    auto* earlySpatialRight =
+        earlySpatialOutput.getWritePointer (1);
+
+    auto* lateSpatialLeft =
+        lateSpatialOutput.getWritePointer (0);
+
+    auto* lateSpatialRight =
+        lateSpatialOutput.getWritePointer (1);
+
+    //======================================================================
+    // Read parameters
 
     const float directionDegrees =
-        apvts.getRawParameterValue ("direction")->load();
+        apvts.getRawParameterValue (
+            "direction")->load();
 
     const float preDelayMs =
-        apvts.getRawParameterValue ("delayMs")->load();
+        apvts.getRawParameterValue (
+            "delayMs")->load();
 
     const float feedback =
-        apvts.getRawParameterValue ("feedback")->load();
+        apvts.getRawParameterValue (
+            "feedback")->load();
 
     const float mix =
-        apvts.getRawParameterValue ("mix")->load();
+        apvts.getRawParameterValue (
+            "mix")->load();
 
     const float tone =
-        apvts.getRawParameterValue ("tone")->load();
+        apvts.getRawParameterValue (
+            "tone")->load();
 
     const float width =
-        apvts.getRawParameterValue ("width")->load();
+        apvts.getRawParameterValue (
+            "width")->load();
 
-    // Convert Feedback into an approximate hall decay time.
-    const float decaySeconds = juce::jmap (
-        feedback,
-        0.0f,
-        0.95f,
-        0.8f,
-        8.0f);
+    const float decaySeconds =
+        juce::jmap (
+            feedback,
+            0.0f,
+            0.95f,
+            0.8f,
+            8.0f);
 
-    // Higher Tone values create a brighter reverb tail.
-    const float dampingHz = juce::jmap (
-        tone,
-        0.0f,
-        1.0f,
-        1800.0f,
-        12000.0f);
+    const float dampingHz =
+        juce::jmap (
+            tone,
+            0.0f,
+            1.0f,
+            1800.0f,
+            12000.0f);
 
-    hallReverb.setPreDelayMs (preDelayMs);
-    hallReverb.setDecaySeconds (decaySeconds);
-    hallReverb.setDampingHz (dampingHz);
+    hallReverb.setPreDelayMs (
+        preDelayMs);
 
-    //==========================================================================
-    // Create the mono signal sent into the reverb engine
+    hallReverb.setDecaySeconds (
+        decaySeconds);
 
-    for (int sample = 0; sample < numSamples; ++sample)
+    hallReverb.setDampingHz (
+        dampingHz);
+
+    //======================================================================
+    // Create the mono signal sent into the hall
+
+    for (int sample = 0;
+         sample < numSamples;
+         ++sample)
     {
-        const float inputLeft = leftChannel[sample];
+        const float inputLeft =
+            leftChannel[sample];
 
-        const float inputRight = rightChannel != nullptr
+        const float inputRight =
+            rightChannel != nullptr
             ? rightChannel[sample]
             : inputLeft;
 
         monoInput[sample] =
-            0.5f * (inputLeft + inputRight);
+            0.5f
+            * (inputLeft + inputRight);
     }
 
-    // Generate separate early-reflection and late-tail signals.
     hallReverb.processBlock (
         monoInput,
         earlyMono,
         lateMono,
         numSamples);
 
-    //==========================================================================
-    // Temporary stereo direction processing
+    //======================================================================
+    // Determine the two positions
+
+    const float tailDirection =
+        HorizontalHrirDatabase::wrap360 (
+            directionDegrees);
+
+    const float originDirection =
+        HorizontalHrirDatabase::wrap360 (
+            directionDegrees + 180.0f);
+
+    // Tail follows Direction.
+    lateSpatializer.setAngleDegrees (
+        tailDirection);
+
+    // Early-reflection origin stays opposite Direction.
+    earlySpatializer.setAngleDegrees (
+        originDirection);
+
+    lateSpatializer.processMonoToStereo (
+        lateMono,
+        lateSpatialLeft,
+        lateSpatialRight,
+        numSamples);
+
+    earlySpatializer.processMonoToStereo (
+        earlyMono,
+        earlySpatialLeft,
+        earlySpatialRight,
+        numSamples);
+
+    //======================================================================
+    // Width
     //
-    // The late tail follows Direction.
+    // Width 0:
+    //   centered early reflections
     //
-    // Width controls how far the early reflections move from the center
-    // toward the position opposite the tail.
-    //
-    // This is still gain-based stereo panning. HRIR convolution will later
-    // replace this section for true front/back positioning.
-
-    const float directionRadians =
-        juce::degreesToRadians (directionDegrees);
-
-    // 90 degrees = right.
-    // 270 degrees = left.
-    const float tailPan =
-        std::sin (directionRadians);
-
-    // Constant-power tail panning.
-    const float tailLeftGain =
-        std::sqrt (0.5f * (1.0f - tailPan));
-
-    const float tailRightGain =
-        std::sqrt (0.5f * (1.0f + tailPan));
-
-    //==========================================================================
-    // Width response
+    // Width 1:
+    //   fully binaural early reflections opposite the tail
 
     const float widthAmount =
-        juce::jlimit (0.0f, 1.0f, width);
+        juce::jlimit (
+            0.0f,
+            1.0f,
+            width);
 
-    // Stretch the useful range so low and middle Width values move gradually.
-    //
-    // Width 0.20 -> about 0.018
-    // Width 0.50 -> about 0.177
-    // Width 0.80 -> about 0.572
-    // Width 1.00 -> 1.000
     const float shapedWidth =
-        std::pow (widthAmount, 2.5f); //this float controls response curve of width knob, higher = more fine tune
+        std::pow (
+            widthAmount,
+            2.5f);
 
-    // The origin moves in the opposite direction from the tail.
-    //
-    // Width = 0:
-    //     earlyPan = 0, so the early reflections are centered.
-    //
-    // Width = 1:
-    //     earlyPan = -tailPan, so they are fully opposite.
-    const float earlyPan =
-        -tailPan * shapedWidth;
+    // These two signals are highly correlated because both originate
+    // from earlyMono. A linear blend is preferable here; equal-power
+    // blending could produce a noticeable volume boost in the middle.
+    const float centredOriginAmount =
+        1.0f - shapedWidth;
 
-    // Constant-power early-reflection panning.
-    const float earlyLeftGain =
-        std::sqrt (0.5f * (1.0f - earlyPan));
+    const float binauralOriginAmount =
+        shapedWidth;
 
-    const float earlyRightGain =
-        std::sqrt (0.5f * (1.0f + earlyPan));
+    constexpr float centreGain =
+        0.70710678f;
 
-    // Starting balance between the early reflections and dense late tail.
-    constexpr float earlyLevel = 0.65f;
-    constexpr float lateLevel  = 1.0f;
+    constexpr float earlyLevel =
+        0.65f;
 
-    const float dryGain = 1.0f - mix;
-    const float wetGain = mix;
+    constexpr float lateLevel =
+        1.0f;
 
-    //==========================================================================
-    // Mix the dry signal with the hall reverb
+    const float dryGain =
+        1.0f - mix;
 
-    for (int sample = 0; sample < numSamples; ++sample)
+    const float wetGain =
+        mix;
+
+    //======================================================================
+    // Output mix
+
+    for (int sample = 0;
+         sample < numSamples;
+         ++sample)
     {
-        const float dryLeft = leftChannel[sample];
+        const float dryLeft =
+            leftChannel[sample];
 
-        const float dryRight = rightChannel != nullptr
+        const float dryRight =
+            rightChannel != nullptr
             ? rightChannel[sample]
             : dryLeft;
 
+        const float centredEarly =
+            earlyMono[sample]
+            * centreGain;
+
+        const float earlyLeft =
+            centredEarly
+                * centredOriginAmount
+            + earlySpatialLeft[sample]
+                * binauralOriginAmount;
+
+        const float earlyRight =
+            centredEarly
+                * centredOriginAmount
+            + earlySpatialRight[sample]
+                * binauralOriginAmount;
+
         const float wetLeft =
-            earlyMono[sample] * earlyLeftGain * earlyLevel
-            + lateMono[sample] * tailLeftGain * lateLevel;
+            earlyLeft * earlyLevel
+            + lateSpatialLeft[sample]
+                * lateLevel;
 
         const float wetRight =
-            earlyMono[sample] * earlyRightGain * earlyLevel
-            + lateMono[sample] * tailRightGain * lateLevel;
+            earlyRight * earlyLevel
+            + lateSpatialRight[sample]
+                * lateLevel;
 
         if (rightChannel != nullptr)
         {
@@ -355,7 +464,8 @@ void HallAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         else
         {
             const float monoWet =
-                0.5f * (wetLeft + wetRight);
+                0.5f
+                * (wetLeft + wetRight);
 
             leftChannel[sample] =
                 dryLeft * dryGain

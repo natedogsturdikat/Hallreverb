@@ -113,7 +113,7 @@ void HallAudioProcessorEditor::paint (juce::Graphics& g)
 
     g.setColour (juce::Colours::white);
     g.setFont (22.0f);
-    g.drawFittedText ("Hall", getLocalBounds().removeFromTop (30),
+    g.drawFittedText ("Hall v0.0.2", getLocalBounds().removeFromTop (30),
                       juce::Justification::centred, 1);
 }
 
